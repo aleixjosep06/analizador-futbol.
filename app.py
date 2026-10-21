@@ -6,8 +6,8 @@ from scipy.stats import poisson
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="AI Football Predictor Pro", page_icon="⚽")
 
-# Pon aquí tu API KEY de RapidAPI
-API_KEY = "ee46bff398msh8528abea39c4e21p1c1199jsna65d879bc991" # <--- SUSTITUYE ESTO POR TU CLAVE
+# SUSTITUYE ESTO POR TU CLAVE DE RAPIDAPI
+API_KEY = "ee46bff398msh8528abea39c4e21p1c1199jsna65d879bc991" 
 API_HOST = "api-football-v1.p.rapidapi.com"
 
 HEADERS = {
@@ -19,20 +19,25 @@ HEADERS = {
 def buscar_equipo(nombre):
     url = f"https://{API_HOST}/v3/teams"
     params = {"search": nombre}
-    response = requests.get(url, headers=HEADERS, params=params)
-    data = response.json()
-    if data['response']:
-        return data['response'][0] # Retorna el primer resultado
+    try:
+        response = requests.get(url, headers=HEADERS, params=params)
+        data = response.json()
+        if data.get('response'):
+            return data['response'][0]
+    except:
+        return None
     return None
 
 def obtener_estadisticas(team_id, league_id, season):
     url = f"https://{API_HOST}/v3/teams/statistics"
     params = {"team": team_id, "league": league_id, "season": season}
-    response = requests.get(url, headers=HEADERS, params=params)
-    return response.json()['response']
+    try:
+        response = requests.get(url, headers=HEADERS, params=params)
+        return response.json().get('response', {})
+    except:
+        return {}
 
 def obtener_promedio_liga(league_id, season):
-    # Simplificación: Promedio estándar de goles locales si la API no lo da directo
     return 1.35 
 
 # --- INTERFAZ VISUAL ---
@@ -47,7 +52,6 @@ with col2:
 
 if st.button("🚀 Analizar Partido"):
     with st.spinner("Buscando datos en tiempo real..."):
-        # 1. Buscar equipos
         team_l = buscar_equipo(local_query)
         team_v = buscar_equipo(visitante_query)
 
@@ -58,26 +62,18 @@ if st.button("🚀 Analizar Partido"):
             v_name = team_v['team']['name']
             l_league = team_l['league']['id']
             
-            # 2. Obtener datos de rendimiento (Simplificado para el ejemplo)
-            # En una versión completa, aquí iteramos los últimos 10 partidos
-            # Para este prototipo, simulamos el cálculo basado en la posición y goles de la API
             stats_l = obtener_estadisticas(l_id, l_league, "2023")
             stats_v = obtener_estadisticas(v_id, l_league, "2023")
 
-            # Calculamos fuerzas basadas en goles marcados/concedidos
-            # (Si la API falla en algún dato, usamos 1.0 como base)
             try:
-                goles_l = stats_l['goals']['for']['average']['total'] if 'goals' in stats_l else 1.3
-                goles_v = stats_v['goals']['for']['average']['total'] if 'goals' in stats_v else 1.1
-                def_l = stats_l['goals']['against']['average']['total'] if 'goals' in stats_l else 1.0
-                def_v = stats_v['goals']['against']['average']['total'] if 'goals' in stats_v else 1.0
+                goles_l = stats_l.get('goals', {}).get('for', {}).get('average', {}).get('total', 1.3)
+                goles_v = stats_v.get('goals', {}).get('for', {}).get('average', {}).get('total', 1.1)
+                def_l = stats_l.get('goals', {}).get('against', {}).get('average', {}).get('total', 1.0)
+                def_v = stats_v.get('goals', {}).get('against', {}).get('average', {}).get('total', 1.0)
             except:
                 goles_l, goles_v, def_l, def_v = 1.3, 1.1, 1.0, 1.0
 
-            # 3. Aplicar Modelo de Poisson
             promedio_liga = obtener_promedio_liga(l_league, "2023")
-            
-            # Normalizamos fuerzas (Ratio)
             ataque_l = goles_l / promedio_liga
             defensa_l = def_l / promedio_liga
             ataque_v = goles_v / promedio_liga
@@ -86,7 +82,6 @@ if st.button("🚀 Analizar Partido"):
             lambda_l = ataque_l * defensa_v * promedio_liga
             lambda_v = ataque_v * defensa_l * promedio_liga
 
-            # Cálculo de probabilidades
             p_l, p_e, p_v = 0, 0, 0
             for i in range(10):
                 for j in range(10):
@@ -95,10 +90,8 @@ if st.button("🚀 Analizar Partido"):
                     elif i == j: p_e += prob
                     else: p_v += prob
 
-            # --- MOSTRAR RESULTADOS ---
             st.divider()
             st.subheader(f"📊 {l_name} vs {v_name}")
-            
             c1, c2, c3 = st.columns(3)
             c1.metric(l_name, f"{p_l*100:.1f}%")
             c2.metric("Empate", f"{p_e*100:.1f}%")
@@ -106,7 +99,6 @@ if st.button("🚀 Analizar Partido"):
 
             st.info(f"Goles Esperados: {l_name} {lambda_l:.2f} - {v_name} {lambda_v:.2f}")
 
-            # Cuotas para buscar valor
             st.divider()
             st.subheader("💰 Comparador de Valor")
             col_q1, col_q2, col_q3 = st.columns(3)
@@ -114,7 +106,6 @@ if st.button("🚀 Analizar Partido"):
             q_e = col_q2.number_input("Cuota Empate", value=3.50)
             q_v = col_q3.number_input(f"Cuota {v_name}", value=4.00)
 
-            # Analizar valor
             for nombre, prob, cuota in [(l_name, p_l, q_l), ("Empate", p_e, q_e), (v_name, p_v, q_v)]:
                 cuota_justa = 1/prob if prob > 0 else 999
                 if cuota > cuota_justa:
@@ -122,4 +113,3 @@ if st.button("🚀 Analizar Partido"):
 
         else:
             st.error("No se encontraron los equipos. Intenta escribirlos exactamente como aparecen en la liga.")
-Paso 3: Actualizar requirements.txt
