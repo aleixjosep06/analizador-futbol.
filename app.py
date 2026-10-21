@@ -1,130 +1,125 @@
 import streamlit as st
-import numpy as np
-from scipy.stats import poisson
+import requests
 import pandas as pd
+from scipy.stats import poisson
 
-# Configuración de la página
-st.set_page_config(page_title="Predictor de Valor Futbolístico", page_icon="⚽")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="AI Football Predictor Pro", page_icon="⚽")
 
-# --- ESTILOS PERSONALIZADOS ---
-st.markdown("""
-    <style>
-    .main {
-        background-color: #f5f7f9;
-    }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
-    }
-    .valor-box {
-        background-color: #d4edda;
-        color: #155724;
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid #c3e6cb;
-        text-align: center;
-        font-weight: bold;
-        font-size: 20px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# Pon aquí tu API KEY de RapidAPI
+API_KEY = "ee46bff398msh8528abea39c4e21p1c1199jsna65d879bc991" # <--- SUSTITUYE ESTO POR TU CLAVE
+API_HOST = "api-football-v1.p.rapidapi.com"
 
-st.title("⚽ Analizador de Valor: Apuestas de Fútbol")
-st.write("Calcula la probabilidad real de un partido y encuentra cuotas con valor.")
-
-# --- BARRA LATERAL: CONFIGURACIÓN GENERAL ---
-st.sidebar.header("⚙️ Configuración de la Liga")
-promedio_liga = st.sidebar.slider("Promedio Goles Local (Liga)", 0.5, 2.5, 1.35, 0.05)
-
-# --- SECCIÓN 1: EQUIPOS ---
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("🏠 Equipo Local")
-    nombre_local = st.text_input("Nombre Local", "Celtic FC")
-    ataque_local = st.slider("Fuerza Ataque Local", 0.1, 3.0, 1.5, 0.1)
-    defensa_local = st.slider("Fuerza Defensa Local", 0.1, 3.0, 1.0, 0.1)
-
-with col2:
-    st.subheader("🚌 Equipo Visitante")
-    nombre_visitante = st.text_input("Nombre Visitante", "Celta de Vigo")
-    ataque_visitante = st.slider("Fuerza Ataque Visitante", 0.1, 3.0, 1.0, 0.1)
-    defensa_visitante = st.slider("Fuerza Defensa Visitante", 0.1, 3.0, 1.0, 0.1)
-
-# --- SECCIÓN 2: CUOTAS ---
-st.divider()
-st.subheader("💰 Cuotas de la Casa de Apuestas")
-c_col1, c_col2, c_col3 = st.columns(3)
-with c_col1:
-    cuota_local = st.number_input(f"Cuota {nombre_local}", min_value=1.01, value=1.80)
-with c_col2:
-    cuota_empate = st.number_input("Cuota Empate", min_value=1.01, value=3.50)
-with c_col3:
-    cuota_visitante = st.number_input(f"Cuota {nombre_visitante}", min_value=1.01, value=4.20)
-
-# --- MOTOR de CÁLCULO ---
-def calcular_prediccion():
-    # Cálculo de xG (Goles Esperados)
-    lambda_local = ataque_local * defensa_visitante * promedio_liga
-    lambda_visitante = ataque_visitante * defensa_local * promedio_liga
-
-    prob_local = 0
-    prob_empate = 0
-    prob_visitante = 0
-
-    for i in range(10):
-        for j in range(10):
-            p = poisson.pmf(i, lambda_local) * poisson.pmf(j, lambda_visitante)
-            if i > j: prob_local += p
-            elif i == j: prob_empate += p
-            else: prob_visitante += p
-
-    return prob_local, prob_empate, prob_visitante, lambda_local, lambda_visitante
-
-# Ejecutar cálculo
-p_local, p_empate, p_visitante, xg_l, xg_v = calcular_prediccion()
-
-# --- RESULTADOS VISUALES ---
-st.divider()
-st.subheader("📊 Resultados del Análisis")
-
-res_col1, res_col2, res_col3 = st.columns(3)
-res_col1.metric(f"Prob. {nombre_local}", f"{p_local*100:.1f}%")
-res_col2.metric("Prob. Empate", f"{p_empate*100:.1f}%")
-res_col3.metric(f"Prob. {nombre_visitante}", f"{p_visitante*100:.1f}%")
-
-st.info(f"**Goles Esperados (xG):** {nombre_local} {xg_l:.2f} - {nombre_visitante} {xg_v:.2f}")
-
-# --- ANÁLISIS DE VALOR ---
-st.subheader("🎯 Recomendación de Apuesta")
-
-resultados = {
-    nombre_local: (p_local, cuota_local),
-    "Empate": (p_empate, cuota_empate),
-    nombre_visitante: (p_visitante, cuota_visitante)
+HEADERS = {
+    "X-RapidAPI-Key": API_KEY,
+    "X-RapidAPI-Host": API_HOST
 }
 
-encontrado_valor = False
-for resultado, datos in resultados.items():
-    prob, cuota = datos
-    cuota_justa = 1 / prob if prob > 0 else 999
-    
-    if cuota > cuota_justa:
-        encontrado_valor = True
-        ventaja = (cuota / cuota_justa) - 1
-        st.markdown(f"""
-            <div class="valor-box">
-                🚀 ¡VALOR ENCONTRADO! <br>
-                Apuesta a: {resultado} <br>
-                Cuota Justa: {cuota_justa:.2f} | Cuota Casa: {cuota} <br>
-                Ventaja Estadística: {ventaja:.1%}
-            </div>
-            """, unsafe_allow_html=True)
-        st.write("")
+# --- FUNCIONES DE API ---
+def buscar_equipo(nombre):
+    url = f"https://{API_HOST}/v3/teams"
+    params = {"search": nombre}
+    response = requests.get(url, headers=HEADERS, params=params)
+    data = response.json()
+    if data['response']:
+        return data['response'][0] # Retorna el primer resultado
+    return None
 
-if not encontrado_valor:
-    st.warning("No se encontró valor en ninguna de las tres opciones. El riesgo es mayor que la recompensa.")
+def obtener_estadisticas(team_id, league_id, season):
+    url = f"https://{API_HOST}/v3/teams/statistics"
+    params = {"team": team_id, "league": league_id, "season": season}
+    response = requests.get(url, headers=HEADERS, params=params)
+    return response.json()['response']
 
-st.caption("Nota: Este software es una herramienta estadística. El fútbol es impredecible. Apuesta con responsabilidad.")
+def obtener_promedio_liga(league_id, season):
+    # Simplificación: Promedio estándar de goles locales si la API no lo da directo
+    return 1.35 
+
+# --- INTERFAZ VISUAL ---
+st.title("⚽ AI Predictor Pro: Automatizado")
+st.write("Busca cualquier equipo del mundo y analiza el valor de la apuesta.")
+
+col1, col2 = st.columns(2)
+with col1:
+    local_query = st.text_input("Equipo Local", "Celtic")
+with col2:
+    visitante_query = st.text_input("Equipo Visitante", "Celta de Vigo")
+
+if st.button("🚀 Analizar Partido"):
+    with st.spinner("Buscando datos en tiempo real..."):
+        # 1. Buscar equipos
+        team_l = buscar_equipo(local_query)
+        team_v = buscar_equipo(visitante_query)
+
+        if team_l and team_v:
+            l_id = team_l['team']['id']
+            v_id = team_v['team']['id']
+            l_name = team_l['team']['name']
+            v_name = team_v['team']['name']
+            l_league = team_l['league']['id']
+            
+            # 2. Obtener datos de rendimiento (Simplificado para el ejemplo)
+            # En una versión completa, aquí iteramos los últimos 10 partidos
+            # Para este prototipo, simulamos el cálculo basado en la posición y goles de la API
+            stats_l = obtener_estadisticas(l_id, l_league, "2023")
+            stats_v = obtener_estadisticas(v_id, l_league, "2023")
+
+            # Calculamos fuerzas basadas en goles marcados/concedidos
+            # (Si la API falla en algún dato, usamos 1.0 como base)
+            try:
+                goles_l = stats_l['goals']['for']['average']['total'] if 'goals' in stats_l else 1.3
+                goles_v = stats_v['goals']['for']['average']['total'] if 'goals' in stats_v else 1.1
+                def_l = stats_l['goals']['against']['average']['total'] if 'goals' in stats_l else 1.0
+                def_v = stats_v['goals']['against']['average']['total'] if 'goals' in stats_v else 1.0
+            except:
+                goles_l, goles_v, def_l, def_v = 1.3, 1.1, 1.0, 1.0
+
+            # 3. Aplicar Modelo de Poisson
+            promedio_liga = obtener_promedio_liga(l_league, "2023")
+            
+            # Normalizamos fuerzas (Ratio)
+            ataque_l = goles_l / promedio_liga
+            defensa_l = def_l / promedio_liga
+            ataque_v = goles_v / promedio_liga
+            defensa_v = def_v / promedio_liga
+
+            lambda_l = ataque_l * defensa_v * promedio_liga
+            lambda_v = ataque_v * defensa_l * promedio_liga
+
+            # Cálculo de probabilidades
+            p_l, p_e, p_v = 0, 0, 0
+            for i in range(10):
+                for j in range(10):
+                    prob = poisson.pmf(i, lambda_l) * poisson.pmf(j, lambda_v)
+                    if i > j: p_l += prob
+                    elif i == j: p_e += prob
+                    else: p_v += prob
+
+            # --- MOSTRAR RESULTADOS ---
+            st.divider()
+            st.subheader(f"📊 {l_name} vs {v_name}")
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric(l_name, f"{p_l*100:.1f}%")
+            c2.metric("Empate", f"{p_e*100:.1f}%")
+            c3.metric(v_name, f"{p_v*100:.1f}%")
+
+            st.info(f"Goles Esperados: {l_name} {lambda_l:.2f} - {v_name} {lambda_v:.2f}")
+
+            # Cuotas para buscar valor
+            st.divider()
+            st.subheader("💰 Comparador de Valor")
+            col_q1, col_q2, col_q3 = st.columns(3)
+            q_l = col_q1.number_input(f"Cuota {l_name}", value=1.80)
+            q_e = col_q2.number_input("Cuota Empate", value=3.50)
+            q_v = col_q3.number_input(f"Cuota {v_name}", value=4.00)
+
+            # Analizar valor
+            for nombre, prob, cuota in [(l_name, p_l, q_l), ("Empate", p_e, q_e), (v_name, p_v, q_v)]:
+                cuota_justa = 1/prob if prob > 0 else 999
+                if cuota > cuota_justa:
+                    st.success(f"✅ VALOR en {nombre}: Cuota Casa {cuota} > Justa {cuota_justa:.2f}")
+
+        else:
+            st.error("No se encontraron los equipos. Intenta escribirlos exactamente como aparecen en la liga.")
+Paso 3: Actualizar requirements.txt
